@@ -100,14 +100,15 @@ export const register: Register = on => {
           if (added > 0) {
             trim(times)
             await $.store.set(KEY, times)
-            $.ui.invalidate('ui.render')
           }
           break
         }
       }
     } catch {
-      // a missing or oversized transcript just means no older times
+      // a missing or unreadable transcript just means no older times
     }
+    // Rows drawn before this load (or before a time was saved) draw again.
+    $.ui.invalidate('ui.render')
     return result
   })
 
