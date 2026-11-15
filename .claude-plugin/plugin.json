@@ -1,0 +1,6 @@
+{
+  "name": "message-time",
+  "version": "0.1.0",
+  "description": "Shows the full date and exact time under each chat message",
+  "license": "MIT"
+}

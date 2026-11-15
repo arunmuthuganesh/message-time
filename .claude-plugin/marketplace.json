@@ -1,0 +1,5 @@
+{
+  "name": "message-time",
+  "owner": { "name": "arunmuthuganesh" },
+  "plugins": [{ "name": "message-time", "source": "./" }]
+}
