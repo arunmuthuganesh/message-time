@@ -119,6 +119,8 @@ export const register: Register = on => {
         times[result.uuid] = await $.clock.now()
         trim(times)
         await $.store.set(KEY, times)
+        // The row may already be drawn without its time: draw it again.
+        $.ui.invalidate('ui.render')
       } catch {
         // never block a message over a timestamp
       }
