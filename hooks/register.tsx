@@ -1,4 +1,4 @@
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 // Message rows carry no timestamp. New rows: we record the moment each is
 // saved (keyed by its id). Older rows: at session start we read their saved
@@ -30,29 +30,51 @@ function trim(times: Record<string, number>) {
 // character turned into '-'.
 const slug = (p: string) => p.replace(/[^A-Za-z0-9]/g, '-')
 
-// Pulls { uuid: epoch ms } for the visible user/assistant rows of a transcript.
-function parseTranscript(text: string): Record<string, number> {
-  const out: Record<string, number> = {}
-  for (const line of text.split('\n')) {
-    if (!line.includes('"timestamp"')) continue
-    let row: any
-    try { row = JSON.parse(line) } catch { continue }
-    if (row?.type !== 'user' && row?.type !== 'assistant') continue
-    if (typeof row.uuid !== 'string' || typeof row.timestamp !== 'string') continue
-    const ms = Date.parse(row.timestamp)
-    if (Number.isNaN(ms)) continue
-    const c = row.message?.content
-    const hasText = typeof c === 'string' ||
-      (Array.isArray(c) && c.some((b: any) => b?.type === 'text'))
-    if (!hasText) continue
-    out[row.uuid] = ms
-    // Reply rows are drawn under the API message id ("msg_…-t0"), so key
-    // assistant rows by that id too, keeping the earliest time.
-    const mid = row.message?.id
-    if (row.type === 'assistant' && typeof mid === 'string') {
-      if (out[mid] === undefined || ms < out[mid]) out[mid] = ms
-    }
+// Adds { id: epoch ms } for one transcript line, if it is a visible
+// user/assistant row.
+function parseLine(line: string, out: Record<string, number>) {
+  if (!line.includes('"timestamp"')) return
+  let row: any
+  try { row = JSON.parse(line) } catch { return }
+  if (row?.type !== 'user' && row?.type !== 'assistant') return
+  if (typeof row.uuid !== 'string' || typeof row.timestamp !== 'string') return
+  const ms = Date.parse(row.timestamp)
+  if (Number.isNaN(ms)) return
+  const c = row.message?.content
+  const hasText = typeof c === 'string' ||
+    (Array.isArray(c) && c.some((b: any) => b?.type === 'text'))
+  if (!hasText) return
+  out[row.uuid] = ms
+  // Reply rows are drawn under the API message id ("msg_…-t0"), so key
+  // assistant rows by that id too, keeping the earliest time.
+  const mid = row.message?.id
+  if (row.type === 'assistant' && typeof mid === 'string') {
+    if (out[mid] === undefined || ms < out[mid]) out[mid] = ms
   }
+}
+
+// Reads a transcript's times. `$.fs.read` stops at 4 MiB, so a longer
+// session's file is streamed through `type` (Windows) or `cat` instead.
+async function readTranscript($: EngineInterface, path: string): Promise<Record<string, number>> {
+  const out: Record<string, number> = {}
+  const { size } = await $.fs.stat(path)
+  if (size < 4 * 1024 * 1024) {
+    for (const line of (await $.fs.read(path)).split('\n')) parseLine(line, out)
+    return out
+  }
+  const isWindows = (await $.env.get('OS')) === 'Windows_NT'
+  const argv = isWindows
+    ? ['cmd', '/d', '/c', 'type', path.replace(/\//g, '\\')]
+    : ['cat', path]
+  let rest = ''
+  for await (const piece of $.process.spawn({ argv })) {
+    if (piece.stream !== 'stdout') continue
+    rest += piece.text
+    const lines = rest.split('\n')
+    rest = lines.pop() ?? ''
+    for (const line of lines) parseLine(line, out)
+  }
+  parseLine(rest, out)
   return out
 }
 
@@ -69,7 +91,7 @@ export const register: Register = on => {
         for (const dir of dirs) {
           const path = `${base}/projects/${slug(dir)}/${id}.jsonl`
           if (!(await $.fs.exists(path))) continue
-          const found = parseTranscript(await $.fs.read(path))
+          const found = await readTranscript($, path)
           const times = asTimes(await $.store.get(KEY))
           let added = 0
           for (const [uuid, ms] of Object.entries(found)) {
