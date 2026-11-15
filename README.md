@@ -1,5 +1,7 @@
 # message-time
 
+![The exact date and time shown under a chat message](docs/screenshot.png)
+
 A Claude Code mod that shows the full date and exact time under every chat
 message, for example `🕒 Sun 15 Nov 2026, 14:32:07`. Your own messages get the
 time on the right, Claude's replies under each text block.
